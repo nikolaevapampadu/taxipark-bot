@@ -87,7 +87,7 @@ app.post("/ask", async (req, res) => {
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "qwen/qwen3-32b:free",
+        model: "openai/gpt-oss-120b:free",
 
         messages: [
           {
