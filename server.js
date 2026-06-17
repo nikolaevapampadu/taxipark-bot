@@ -8,6 +8,49 @@ const app = express();
 
 app.use(express.json());
 
+const knowledgeBase = fs.readFileSync("./knowledge/knowledge.txt", "utf8");
+
+function splitFaq(text) {
+  return text
+    .split(/FAQ\s+\d+/g)
+    .map(item => item.trim())
+    .filter(item => item.length > 30);
+}
+
+const faqItems = splitFaq(knowledgeBase);
+
+function normalize(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(word => word.length > 2);
+}
+
+function findRelevantFaq(question, limit = 5) {
+  const questionWords = normalize(question);
+
+  const scored = faqItems.map(item => {
+    const itemText = item.toLowerCase();
+    let score = 0;
+
+    for (const word of questionWords) {
+      if (itemText.includes(word)) {
+        score += 1;
+      }
+    }
+
+    return { item, score };
+  });
+
+  return scored
+    .filter(result => result.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(result => result.item)
+    .join("\n\n---\n\n");
+}
+
 app.get("/", (req, res) => {
   res.send("Таксопарк бот работает 🚕");
 });
@@ -22,31 +65,37 @@ app.post("/ask", async (req, res) => {
       });
     }
 
+    console.log("Вопрос:", question);
+
+    const relevantKnowledge = findRelevantFaq(question);
+
+    if (!relevantKnowledge) {
+      return res.json({
+        answer: "Не нашёл точной информации в базе. Напишите менеджеру, он поможет разобраться."
+      });
+    }
+
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "openrouter/free",
+        model: "deepseek/deepseek-chat-v3-0324:free",
         messages: [
           {
             role: "system",
             content: `
 Ты Астерикс — помощник таксопарка Астерикс.
 
-Помогаешь курьерам Яндекс Еды по вопросам:
-- регистрация
-- самозанятость
-- установка Яндекс Про
-- подключение к парку
-- бонусы
-- первый слот
-- выплаты
-- поддержка
+Отвечай только на основе найденных фрагментов базы знаний.
 
 Правила:
-- отвечай коротко, дружелюбно и понятно;
-- не придумывай точные ставки, бонусы и правила;
-- если не уверен, отправляй к менеджеру;
-- не обещай выплаты и условия, если их нет в вопросе или базе.
+- отвечай коротко и понятно;
+- не придумывай факты;
+- если информации недостаточно, напиши: "Не нашёл точной информации. Напишите менеджеру.";
+- не обещай выплаты, бонусы и условия, если этого нет в базе.
+
+НАЙДЕННЫЕ ФРАГМЕНТЫ БАЗЫ:
+
+${relevantKnowledge}
 `
           },
           {
@@ -60,14 +109,16 @@ app.post("/ask", async (req, res) => {
           Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
           "HTTP-Referer": "https://taxipark-bot-3sw2.onrender.com",
-          "X-OpenRouter-Title": "Asterix Courier Bot"
+          "X-Title": "Asterix Courier Bot"
         }
       }
     );
 
-    res.json({
-      answer: response.data.choices[0].message.content
-    });
+    const answer =
+      response.data.choices?.[0]?.message?.content ||
+      "Не удалось получить ответ.";
+
+    res.json({ answer });
 
   } catch (error) {
     console.error("Ошибка OpenRouter:", error.response?.data || error.message);
@@ -78,7 +129,7 @@ app.post("/ask", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
