@@ -8,7 +8,11 @@ const app = express();
 
 app.use(express.json());
 
-const knowledgeBase = fs.readFileSync("./knowledge/knowledge.txt", "utf8");
+// Загружаем базу знаний
+const knowledgeBase = fs.readFileSync(
+  "./knowledge/knowledge.txt",
+  "utf8"
+);
 
 function splitFaq(text) {
   return text
@@ -32,22 +36,26 @@ function findRelevantFaq(question, limit = 5) {
 
   const scored = faqItems.map(item => {
     const itemText = item.toLowerCase();
+
     let score = 0;
 
     for (const word of questionWords) {
       if (itemText.includes(word)) {
-        score += 1;
+        score++;
       }
     }
 
-    return { item, score };
+    return {
+      item,
+      score
+    };
   });
 
   return scored
-    .filter(result => result.score > 0)
+    .filter(item => item.score > 0)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
-    .map(result => result.item)
+    .map(item => item.item)
     .join("\n\n---\n\n");
 }
 
@@ -71,14 +79,16 @@ app.post("/ask", async (req, res) => {
 
     if (!relevantKnowledge) {
       return res.json({
-        answer: "Не нашёл точной информации в базе. Напишите менеджеру, он поможет разобраться."
+        answer:
+          "Не нашёл точной информации в базе. Напишите менеджеру."
       });
     }
 
     const response = await axios.post(
       "https://openrouter.ai/api/v1/chat/completions",
       {
-        model: "deepseek/deepseek-chat-v3-0324:free",
+        model: "qwen/qwen3-32b:free",
+
         messages: [
           {
             role: "system",
@@ -89,9 +99,11 @@ app.post("/ask", async (req, res) => {
 
 Правила:
 - отвечай коротко и понятно;
-- не придумывай факты;
-- если информации недостаточно, напиши: "Не нашёл точной информации. Напишите менеджеру.";
-- не обещай выплаты, бонусы и условия, если этого нет в базе.
+- не придумывай информацию;
+- не придумывай суммы, бонусы, сроки и выплаты;
+- если ответа нет в базе, скажи:
+"Не нашёл точной информации в базе. Напишите менеджеру.";
+- не используй информацию вне базы знаний.
 
 НАЙДЕННЫЕ ФРАГМЕНТЫ БАЗЫ:
 
@@ -108,7 +120,8 @@ ${relevantKnowledge}
         headers: {
           Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "https://taxipark-bot-3sw2.onrender.com",
+          "HTTP-Referer":
+            "https://taxipark-bot-3sw2.onrender.com",
           "X-Title": "Asterix Courier Bot"
         }
       }
@@ -118,14 +131,21 @@ ${relevantKnowledge}
       response.data.choices?.[0]?.message?.content ||
       "Не удалось получить ответ.";
 
-    res.json({ answer });
+    res.json({
+      answer
+    });
 
   } catch (error) {
-    console.error("Ошибка OpenRouter:", error.response?.data || error.message);
+
+    console.error(
+      "Ошибка OpenRouter:",
+      error.response?.data || error.message
+    );
 
     res.json({
       answer: "Извините, сейчас не удалось получить ответ."
     });
+
   }
 });
 
